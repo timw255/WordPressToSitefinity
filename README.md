@@ -25,11 +25,6 @@ This tool imports blog posts from WordPress export files in to Telerik Sitefinit
 
 Currently, this if intended for developers already familiar with Telerik Sitefinity as it's not quite complete.
 
-Things that are yet to be completed are:
-
-* Importing post meta information
-* Importing comments
-
 Suggestions and pull requests are totally welcome!
 
 ##How to hook everything up
