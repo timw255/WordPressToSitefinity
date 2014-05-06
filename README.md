@@ -6,12 +6,12 @@ This is not a standalone project. It must be placed inside of a Sitefinity 7.0 o
 
 This tool imports blog posts from WordPress export files in to Telerik Sitefinity blogs.
 
-*Current Functionality*
+**Current Functionality**
 
 * Tags and Categories can be automatically created in Sitefinity and assigned to the posts
 * Images found in post content are downloaded from their remote location, stored inside Sitefinity libraries, and included in the new blog post using [sfref]
 
-*Upcoming Functionality*
+**Upcoming Functionality**
 
 * Import post comments
 * Import post meta data (description, keywords)
@@ -40,6 +40,7 @@ Merge the source files into your project.
 
 ##Running the import
 
-Make sure to do a backup of your project (including the database!) before attempting the import. Just in case, ya know. :)
+_Make sure to do a backup of your project (including the database!) before attempting the import. Just in case, ya know. :)_
 
-Navigate to ~/Migration/WPM.aspx to upload your WordPress XML dump and select the options you'd like. After that, click 'Run' and off it goes!
+1. Navigate to ~/Migration/WPM.aspx to upload your WordPress XML dump and select the options you'd like.
+2. Click 'Run'
