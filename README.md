@@ -10,9 +10,6 @@ This tool imports blog posts from WordPress export files in to Telerik Sitefinit
 
 * Tags and Categories can be automatically created in Sitefinity and assigned to the posts
 * Images found in post content are downloaded from their remote location, stored inside Sitefinity libraries, and included in the new blog post using [sfref]
-
-**Upcoming Functionality**
-
 * Import post comments
 * Import post meta data (description, keywords)
 * Import post thumbnail images
@@ -23,11 +20,16 @@ This tool imports blog posts from WordPress export files in to Telerik Sitefinit
 
 ##Please note
 
-Currently, this if intended for developers already familiar with Telerik Sitefinity as it's not quite complete.
+Currently, this if intended for developers already familiar with Telerik Sitefinity since it may require some modification depending on the exact scenario.
 
 Suggestions and pull requests are totally welcome!
 
 ##How to hook everything up
+
+###What to do first
+
+All authors must already have accounts created in Sitefinity
+All custom blog post fields (meta data, related content, etc.) must be created prior to the import
 
 ###Copying the source files
 
