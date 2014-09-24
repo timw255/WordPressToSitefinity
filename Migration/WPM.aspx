@@ -1,4 +1,4 @@
-﻿<%@ Page Language="C#" AutoEventWireup="True" CodeFile="WPM.aspx.cs" Inherits="SitefinityWebApp.Migrate.WPM" %>
+<%@ Page Language="C#" AutoEventWireup="True" CodeFile="WPM.aspx.cs" Inherits="SitefinityWebApp.Migrate.WPM" %>
 
 <!DOCTYPE html>
 <html>
@@ -65,7 +65,7 @@
                 <label class="control-label" for="CurrentDomain">Current Domain</label>
                 <div class="controls">
                     <asp:TextBox ID="CurrentDomain" ClientIDMode="Static" runat="server" />
-                    <span class="help-block">http://www.currentdomain.com</span>
+                    <span class="help-block">http://www.currentdomain.com (Used to 'fix' image relative image URIs)</span>
                 </div>
             </div>
 
