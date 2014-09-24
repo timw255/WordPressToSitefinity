@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Web;
@@ -30,25 +30,23 @@ using System.Threading;
 using Telerik.Sitefinity.Web.UI;
 using Telerik.Sitefinity.Services.Comments;
 using Telerik.Sitefinity.Services.Comments.Proxies;
+using Telerik.Sitefinity.RelatedData;
 
 namespace SitefinityWebApp.Migrate
 {
     public partial class WPM : System.Web.UI.Page
     {
+        private FlatTaxonomy _tags = SFTaxonomyManager.GetTaxonomies<FlatTaxonomy>().Where(t => t.Name == "Tags").SingleOrDefault();
+        private HierarchicalTaxonomy _categories = SFTaxonomyManager.GetTaxonomies<HierarchicalTaxonomy>().Where(t => t.Name == "Categories").SingleOrDefault();
+
         private string _fromFormat = "yyyy/MM/dd HH:MM:ss";
 
-        //private XNamespace wp = "http://wordpress.org/export/1.2/";
-        //private XNamespace content = "http://purl.org/rss/1.0/modules/content/";
-        //private XNamespace excerpt = "http://wordpress.org/export/1.2/excerpt/";
-        //private XNamespace wfw = "http://wellformedweb.org/CommentAPI/";
-        //private XNamespace dc = "http://purl.org/dc/elements/1.1/";
-
-        private XNamespace wp = "http://wordpress.org/export/1.1/";
+        private XNamespace excerpt = "http://wordpress.org/export/1.2/excerpt/";
         private XNamespace content = "http://purl.org/rss/1.0/modules/content/";
-        private XNamespace excerpt = "http://wordpress.org/export/1.1/excerpt/";
-	    private XNamespace wfw = "http://wellformedweb.org/CommentAPI/";
-	    private XNamespace dc = "http://purl.org/dc/elements/1.1/";
-	    
+        private XNamespace wfw = "http://wellformedweb.org/CommentAPI/";
+        private XNamespace dc = "http://purl.org/dc/elements/1.1/";
+        private XNamespace wp = "http://wordpress.org/export/1.2/";
+        
         // not hooked to UI :/
         // this allows the import to split authors into different blogs
         // would probably need to come AFTER the file is uploaded...
@@ -97,7 +95,7 @@ namespace SitefinityWebApp.Migrate
             var xml = XDocument.Load(WordPressFile.FileContent);
 
             _authors = GetPostAuthorsFromXML(xml);
-            _posts = GetPostsFromXML(xml);//.Take<GenericBlogPost>(3).ToList();
+            _posts = GetPostsFromXML(xml);
 
             foreach (var post in _posts)
             {
@@ -122,7 +120,7 @@ namespace SitefinityWebApp.Migrate
                 }
                 else
                 {
-                    Response.Write("<br>Parent blog '" + parentBlogTitle + "' not found for post '" + post.Title + "'.<br>");
+                    _importLog += "<br>Parent blog '" + parentBlogTitle + "' not found for post '" + post.Title + "'.<br>";
                 }
             }
         }
@@ -145,43 +143,51 @@ namespace SitefinityWebApp.Migrate
 
         private List<GenericBlogPost> GetPostsFromXML(XDocument xml)
         {
-            var posts = xml.Descendants("item")
+            var xmlPosts = xml.Descendants("item")
                 .Where(t => t.Element(wp + "post_type").Value == "post")
-                .Where(t => t.Element(wp + "status").Value == "publish")
-                .Select(t => new GenericBlogPost
-                {
-                    Creator = t.Element(dc + "creator").Value,
-                    Title = t.Element("title").Value,
-                    Link = t.Element("link").Value,
-                    PublicationDate = DateTime.Parse(t.Element("pubDate").Value),
-                    Content = t.Element(content + "encoded").Value,
-                    AllowComments = (t.Element(wp + "comment_status").Value == "open") ? true : false,
-                    Tags = t.Elements("category").Where(b => (string)b.Attribute("domain") == "post_tag").Select(c => c.Value).ToList(),
-                    Categories = t.Elements("category").Where(b => (string)b.Attribute("domain") == "category").Select(c => c.Value).ToList(),
-                    Meta = t.Elements(wp + "postmeta").Count() > 0 ?
-                        t.Elements(wp + "postmeta")
-                        .Where(x => x.Element(wp + "meta_key").Value != "enclosure")
-                        .ToDictionary(
-                            m => m.Element(wp + "meta_key").Value,
-                            m => m.Element(wp + "meta_value").Value
-                        ) : null,
-                    Comments = (t.Elements(wp + "comment").Count() > 0 ? t.Elements(wp + "comment")
-                        .Select(c => new GenericPostComment
-                        {
-                            Author = c.Element(wp + "comment_author").Value,
-                            AuthorEmail = c.Element(wp + "comment_author_email").Value,
-                            AuthorIP = c.Element(wp + "comment_author_IP").Value,
-                            AuthorURL = c.Element(wp + "comment_author_url").Value,
-                            CommentDate = DateTime.Parse(c.Element(wp + "comment_date").Value),
-                            CommentDateGMT = DateTime.Parse(c.Element(wp + "comment_date_gmt").Value),
-                            Content = c.Element(wp + "comment_content").Value,
-                            Status = (c.Element(wp + "comment_approved").Value == "1") ? StatusConstants.Published : StatusConstants.WaitingForApproval,
-                            Type = c.Element(wp + "comment_type").Value,
-                            Parent = int.Parse(c.Element(wp + "comment_parent").Value),
-                            UserId = int.Parse(c.Element(wp + "comment_user_id").Value)
-                        }).ToArray() : null)
-                })
-                .ToList();
+                .Where(t => t.Element(wp + "status").Value == "publish");
+
+            var posts = new List<GenericBlogPost>();
+
+            foreach (XElement p in xmlPosts)
+            {
+                GenericBlogPost post = new GenericBlogPost();
+
+                post.Creator = p.Element(dc + "creator").Value;
+                post.Title = p.Element("title").Value;
+                post.AttachmentUrl = (string)p.Element(wp + "attachment_url") ?? String.Empty;
+                post.PostName = p.Element(wp + "post_name").Value;
+                post.Link = p.Element("link").Value;
+                post.PublicationDate = DateTime.Parse(p.Element("pubDate").Value);
+                post.Content = p.Element(content + "encoded").Value;
+                post.AllowComments = (p.Element(wp + "comment_status").Value == "open") ? true : false;
+                post.Tags = p.Elements("category").Where(b => (string)b.Attribute("domain") == "post_tag").Select(c => c.Value).ToList();
+                post.Categories = p.Elements("category").Where(b => (string)b.Attribute("domain") == "category").Select(c => c.Value).ToList();
+                post.Meta = p.Elements(wp + "postmeta").Count() > 0 ?
+                    p.Elements(wp + "postmeta")
+                    .Where(x => x.Element(wp + "meta_key").Value != "enclosure")
+                    .ToDictionary(
+                        m => m.Element(wp + "meta_key").Value,
+                        m => m.Element(wp + "meta_value").Value
+                    ) : null;
+                post.Comments = (p.Elements(wp + "comment").Count() > 0 ? p.Elements(wp + "comment")
+                    .Select(c => new GenericPostComment
+                    {
+                        Author = c.Element(wp + "comment_author").Value,
+                        AuthorEmail = c.Element(wp + "comment_author_email").Value,
+                        AuthorIP = c.Element(wp + "comment_author_IP").Value,
+                        AuthorURL = c.Element(wp + "comment_author_url").Value,
+                        CommentDate = DateTime.Parse(c.Element(wp + "comment_date").Value),
+                        CommentDateGMT = DateTime.Parse(c.Element(wp + "comment_date_gmt").Value),
+                        Content = c.Element(wp + "comment_content").Value,
+                        Status = (c.Element(wp + "comment_approved").Value == "1") ? StatusConstants.Published : StatusConstants.WaitingForApproval,
+                        Type = c.Element(wp + "comment_type").Value,
+                        Parent = int.Parse(c.Element(wp + "comment_parent").Value),
+                        UserId = int.Parse(c.Element(wp + "comment_user_id").Value)
+                    }).ToArray() : null);
+                
+                posts.Add(post);
+            }
 
             return posts;
         }
@@ -211,7 +217,7 @@ namespace SitefinityWebApp.Migrate
 
             blogPost.Summary = post.Summary;
             blogPost.AllowComments = post.AllowComments;
-            blogPost.UrlName = Regex.Replace(post.Title.ToLower(), @"[^\w\-\!\$\'\(\)\=\@\d_]+", "-");
+            blogPost.UrlName = post.PostName ?? Regex.Replace(post.Title.ToLower(), @"[^\w\-\!\$\'\(\)\=\@\d_]+", "-");
             blogPost.Owner = Guid.Empty;
 
             PostAuthor author = _authors.Where(a => a.Username == post.Creator).FirstOrDefault();
@@ -234,12 +240,11 @@ namespace SitefinityWebApp.Migrate
                     {
                         HierarchicalTaxon taxon;
 
-                        if (!TryGetCategory(category, out taxon))
+                        taxon = SFTaxonomyManager.GetTaxa<HierarchicalTaxon>().Where(t => t.Name == category).FirstOrDefault();
+
+                        if (taxon == null && ddlCategoriesImportMode.SelectedIndex > 1)
                         {
-                            if (ddlCategoriesImportMode.SelectedIndex > 1)
-                            {
-                                taxon = CreateCategory(category);
-                            }
+                            taxon = CreateCategory(category);
                         }
 
                         if (taxon != null)
@@ -250,7 +255,7 @@ namespace SitefinityWebApp.Migrate
                 }
             }
 
-            if(ddlTagsImportMode.SelectedIndex > 0)
+            if (ddlTagsImportMode.SelectedIndex > 0)
             {
                 if (post.Tags != null && post.Tags.Count > 0)
                 {
@@ -258,12 +263,11 @@ namespace SitefinityWebApp.Migrate
                     {
                         FlatTaxon taxon;
 
-                        if (!TryGetTag(tag, out taxon))
+                        taxon = SFTaxonomyManager.GetTaxa<FlatTaxon>().Where(t => t.Name == tag).FirstOrDefault();
+
+                        if (taxon == null && ddlTagsImportMode.SelectedIndex > 1)
                         {
-                            if (ddlTagsImportMode.SelectedIndex > 1)
-                            {
-                                taxon = CreateTag(tag);
-                            }
+                            taxon = CreateTag(tag);
                         }
 
                         if (taxon != null)
@@ -274,35 +278,46 @@ namespace SitefinityWebApp.Migrate
                 }
             }
 
-            if (post.Meta != null)
+            if (post.AttachmentUrl != String.Empty)
             {
-                if (post.Meta.ContainsKey("thesis_post_image"))
+                string imageSrc = post.AttachmentUrl;
+
+                string imgFile = Path.GetFileName(imageSrc);
+
+                var sfImages = App.WorkWith().Images().Where(i => i.Status == ContentLifecycleStatus.Master).Get().ToList();
+
+                var sfImg = sfImages.Where(i => Path.GetFileName(i.FilePath) == imgFile.ToLower()).FirstOrDefault();
+
+                if (sfImg != null)
                 {
-                    string imageSrc = post.Meta["thesis_post_image"];
-
-                    if (ImportThumbnailImage(imageSrc, post.Title, blog.Title))
+                    blogPost.CreateRelation(sfImg, "Thumbnail");
+                }
+                else
+                {
+                    if (ImportImage(imageSrc, post.Title, blog.Title))
                     {
-                        string imgFile = Path.GetFileName(imageSrc);
+                        sfImg = App.WorkWith().Images().Where(i => i.Status == ContentLifecycleStatus.Master).Get().ToList().Where(i => Path.GetFileName(i.FilePath) == imgFile.ToLower()).FirstOrDefault();
 
-                        var sfImg = App.WorkWith().Images().Where(i => i.Status == ContentLifecycleStatus.Master).Get().ToList().Where(i => Path.GetFileName(i.FilePath) == imgFile).FirstOrDefault();
-
-                        if (sfImg != null)
-                        {
-                            string relativeUrl = new Uri(sfImg.MediaUrl).AbsolutePath;
-
-                            blogPost.SetValue("ThumbnailImage", relativeUrl);
-                        }
+                        blogPost.CreateRelation(sfImg, "Thumbnail");
                     }
                 }
+            }
 
-                if (post.Meta.ContainsKey("thesis_description"))
+            if (post.Meta != null)
+            {
+                if (post.Meta.ContainsKey("_yoast_wpseo_title"))
                 {
-                    blogPost.SetValue("MetaDescription", post.Meta["thesis_description"]);
+                    blogPost.SetValue("SEOTitle", post.Meta["_yoast_wpseo_title"]);
                 }
 
-                if (post.Meta.ContainsKey("thesis_keywords"))
+                if (post.Meta.ContainsKey("_yoast_wpseo_metadesc"))
                 {
-                    blogPost.SetValue("MetaKeywords", post.Meta["thesis_keywords"]);
+                    blogPost.SetValue("SEOMetaDescription", post.Meta["_yoast_wpseo_metadesc"]);
+                }
+
+                if (post.Meta.ContainsKey("_yoast_wpseo_focuskw"))
+                {
+                    blogPost.SetValue("SEOMetaKeywords", post.Meta["_yoast_wpseo_focuskw"]);
                 }
             }
 
@@ -318,34 +333,41 @@ namespace SitefinityWebApp.Migrate
             {
                 if (post.Comments != null && post.Comments.Count() > 0)
                 {
-                    BlogPost livePost = SFBlogsManager.Lifecycle.GetLive(blogPost) as BlogPost;
-
                     foreach (var comment in post.Comments)
                     {
-                        var cs = SystemManager.GetCommentsService();
-                        var language = Thread.CurrentThread.CurrentUICulture.Name;
-                        var threadKey = ControlUtilities.GetLocalizedKey(livePost, language);
-
-                        var commentAuthor = new AuthorProxy("", "");
-
-                        EnsureBlogPostThreadExists(threadKey, commentAuthor, livePost.Title, SFBlogsManager, language, cs);
-
-                        //new comment is created via the CommentProxy
-                        var commentProxy = new CommentProxy(comment.Content, threadKey, commentAuthor, comment.AuthorIP);
-                        commentProxy.Status = StatusConstants.Spam;
-
-                        var newComment = cs.CreateComment(commentProxy);
-
-                        newComment.DateCreated = comment.CommentDateGMT;
-                        newComment.LastModified = comment.CommentDateGMT;
+                        CreateBlogPostComment(masterBlogPostId, comment);
                     }
-
-                    SFBlogsManager.SaveChanges();
                 }
             }
+
+            var dbg = _importLog;
         }
 
         #region Comment Stuff
+        public static void CreateBlogPostComment(Guid blogPostId, GenericPostComment comment)
+        {
+            BlogPost blogPost = SFBlogsManager.GetBlogPost(blogPostId);
+
+            var cs = SystemManager.GetCommentsService();
+            var language = Thread.CurrentThread.CurrentUICulture.Name;
+            var threadKey = ControlUtilities.GetLocalizedKey(blogPostId, language);
+
+            var commentAuthor = new AuthorProxy(comment.Author, comment.AuthorEmail);
+
+            EnsureBlogPostThreadExists(threadKey, commentAuthor, blogPost.Title, SFBlogsManager, language, cs);
+
+            var commentProxy = new CommentProxy(comment.Content, threadKey, commentAuthor, comment.AuthorIP);
+
+            commentProxy.Status = StatusConstants.Published;
+
+            var newComment = cs.CreateComment(commentProxy);
+
+            newComment.DateCreated = comment.CommentDateGMT;
+            newComment.LastModified = comment.CommentDateGMT;
+
+            cs.UpdateComment(newComment);
+        }
+
         private static void EnsureBlogPostThreadExists(string threadKey, IAuthor author, string threadTitle, BlogsManager manager, string language, ICommentService cs)
         {
             ThreadFilter threadFilter = new ThreadFilter();
@@ -394,61 +416,25 @@ namespace SitefinityWebApp.Migrate
         #region Taxonomy Stuff
         private FlatTaxon CreateTag(string tagName)
         {
-            FlatTaxon taxon = null;
-
-            var tax = SFTaxonomyManager.GetTaxonomies<FlatTaxonomy>().Where(t => t.Name == "Tags").SingleOrDefault();
-
-            taxon = SFTaxonomyManager.CreateTaxon<FlatTaxon>();
+            FlatTaxon taxon = SFTaxonomyManager.CreateTaxon<FlatTaxon>();
             taxon.Name = tagName;
             taxon.Title = tagName;
             taxon.UrlName = Regex.Replace(tagName.ToLower(), @"[^\w\-\!\$\'\(\)\=\@\d_]+", "-");
 
-            tax.Taxa.Add(taxon);
+            _tags.Taxa.Add(taxon);
             SFTaxonomyManager.SaveChanges();
 
             return taxon;
         }
 
-        private bool TryGetTag(string tagName, out FlatTaxon taxon)
-        {
-            var tax = SFTaxonomyManager.GetTaxonomies<FlatTaxonomy>().Where(t => t.Name == "Tags").SingleOrDefault();
-
-            taxon = SFTaxonomyManager.GetTaxa<FlatTaxon>().Where(t => t.Name == tagName).FirstOrDefault();
-
-            if (taxon == null)
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        private bool TryGetCategory(string categoryName, out HierarchicalTaxon taxon)
-        {
-            var tax = SFTaxonomyManager.GetTaxonomies<HierarchicalTaxonomy>().Where(t => t.Name == "Categories").SingleOrDefault();
-
-            taxon = SFTaxonomyManager.GetTaxa<HierarchicalTaxon>().Where(t => t.Name == categoryName).FirstOrDefault();
-
-            if (taxon == null)
-            {
-                return false;
-            }
-
-            return true;
-        }
-
         private HierarchicalTaxon CreateCategory(string categoryName)
         {
-            HierarchicalTaxon taxon = null;
-
-            var tax = SFTaxonomyManager.GetTaxonomies<HierarchicalTaxonomy>().Where(t => t.Name == "Categories").SingleOrDefault();
-
-            taxon = SFTaxonomyManager.CreateTaxon<HierarchicalTaxon>();
+            HierarchicalTaxon taxon = SFTaxonomyManager.CreateTaxon<HierarchicalTaxon>();
             taxon.Name = categoryName;
             taxon.Title = categoryName;
             taxon.UrlName = Regex.Replace(categoryName.ToLower(), @"[^\w\-\!\$\'\(\)\=\@\d_]+", "-");
 
-            tax.Taxa.Add(taxon);
+            _categories.Taxa.Add(taxon);
             SFTaxonomyManager.SaveChanges();
 
             return taxon;
@@ -456,18 +442,6 @@ namespace SitefinityWebApp.Migrate
         #endregion
 
         #region Album Stuff
-        private bool TryGetAlbum(string albumTitle, out Album album)
-        {
-            album = SFLibrariesManager.GetAlbums().Where(a => a.Title == albumTitle).FirstOrDefault();
-
-            if (album == null)
-            {
-                return false;
-            }
-
-            return true;
-        }
-
         private bool CreateAlbum(string albumTitle)
         {
             App.WorkWith().Album().CreateNew(Guid.NewGuid())
@@ -494,12 +468,12 @@ namespace SitefinityWebApp.Migrate
                 Guid masterImageId = Guid.NewGuid();
                 image = SFLibrariesManager.CreateImage(masterImageId);
 
-                Album album;
+                Album album = SFLibrariesManager.GetAlbums().Where(a => a.Title == albumTitle).FirstOrDefault();
 
-                if (TryGetAlbum(albumTitle, out album))
+                if (album != null)
                 {
                     image.Parent = album;
-                    image.Title = imageTitle;
+                    image.Title = imageTitle.ToLower();
                     image.DateCreated = DateTime.UtcNow;
                     image.PublicationDate = DateTime.UtcNow;
                     image.LastModified = DateTime.UtcNow;
@@ -507,6 +481,8 @@ namespace SitefinityWebApp.Migrate
                     image.AlternativeText = altText;
 
                     SFLibrariesManager.Upload(image, remoteImageStream, imageExtension);
+
+                    SFLibrariesManager.RecompileItemUrls<Telerik.Sitefinity.Libraries.Model.Image>(image);
 
                     SFLibrariesManager.SaveChanges();
 
@@ -546,7 +522,7 @@ namespace SitefinityWebApp.Migrate
         #endregion
 
         #region Remote Image Stuff
-        private bool ImportContentImages(string content, string postTitle, string blogTitle)
+        private void ImportContentImages(string content, string postTitle, string blogTitle)
         {
             CQ document = content;
 
@@ -562,70 +538,27 @@ namespace SitefinityWebApp.Migrate
                     string altText = cqElement.Attr("alt");
                     string imgFile = Path.GetFileName(imageSrc);
 
-                    Uri validUri;
-
-                    if (imageSrc.StartsWith(".."))
-                    {
-                        imageSrc = CurrentDomain.Text + imageSrc.TrimStart('.');
-                    }
-
-                    if (Uri.TryCreate(imageSrc, UriKind.Absolute, out validUri) && !Helpers.IsLocalPath(validUri.ToString()))
-                    {
-                        var sfImg = App.WorkWith().Images().Where(i => i.Status == ContentLifecycleStatus.Master).Get().ToList().Where(i => Path.GetFileName(i.FilePath) == imgFile).FirstOrDefault();
-
-                        if (sfImg == null)
-                        {
-                            try
-                            {
-                                Stream remoteImageStream = DownloadRemoteImageFile(validUri.ToString());
-
-                                if (remoteImageStream != null)
-                                {
-                                    if (!CreateImage("Images for " + blogTitle, Path.GetFileNameWithoutExtension(imgFile), remoteImageStream, Path.GetExtension(imgFile), altText))
-                                    {
-                                        Response.Write("<br>Unable to save image for post '" + postTitle + "'<br>");
-                                        Response.Write("Image Src: " + imageSrc + "<br>");
-                                    }
-                                }
-                                else
-                                {
-                                    Response.Write("<br>Unable to download image for post '" + postTitle + "'<br>");
-                                    Response.Write("Image Src: " + imageSrc + "<br>");
-                                }
-
-                            }
-                            catch (Exception ex)
-                            {
-                                _importLog += ex.Message + "|" + validUri;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        Response.Write("<br>Invalid image URI in post '" + postTitle + "'<br>");
-                        Response.Write("Image Src: " + imageSrc + "<br>");
-                    }
+                    ImportImage(imageSrc, postTitle, blogTitle);
                 });
             }
-
-            return true;
         }
 
-        private bool ImportThumbnailImage(string imageSrc, string postTitle, string blogTitle)
+        private bool ImportImage(string imageSrc, string postTitle, string blogTitle)
         {
             string imgFile = Path.GetFileName(imageSrc);
             string altText = "";
-
-            Uri validUri;
 
             if (imageSrc.StartsWith(".."))
             {
                 imageSrc = CurrentDomain.Text + imageSrc.TrimStart('.');
             }
 
+            bool result = false;
+            Uri validUri;
+
             if (Uri.TryCreate(imageSrc, UriKind.Absolute, out validUri) && !Helpers.IsLocalPath(validUri.ToString()))
             {
-                var sfImg = App.WorkWith().Images().Where(i => i.Status == ContentLifecycleStatus.Master).Get().ToList().Where(i => Path.GetFileName(i.FilePath) == imgFile).FirstOrDefault();
+                var sfImg = App.WorkWith().Images().Where(i => i.Status == ContentLifecycleStatus.Master).Get().ToList().Where(i => Path.GetFileName(i.FilePath) == imgFile.ToLower()).FirstOrDefault();
 
                 if (sfImg == null)
                 {
@@ -635,16 +568,13 @@ namespace SitefinityWebApp.Migrate
 
                         if (remoteImageStream != null)
                         {
-                            if (!CreateImage("Images for " + blogTitle, Path.GetFileNameWithoutExtension(imgFile), remoteImageStream, Path.GetExtension(imgFile), altText))
-                            {
-                                Response.Write("<br>Unable to save thumbnail image for post '" + postTitle + "'<br>");
-                                Response.Write("Image Src: " + imageSrc + "<br>");
-                            }
+                            CreateImage("Images for " + blogTitle, Path.GetFileNameWithoutExtension(imgFile), remoteImageStream, Path.GetExtension(imgFile), altText);
+                            result = true;
                         }
                         else
                         {
-                            Response.Write("<br>Unable to download thumbnail image for post '" + postTitle + "'<br>");
-                            Response.Write("Image Src: " + imageSrc + "<br>");
+                            _importLog += "<br>Unable to retrieve image stream for '" + postTitle + "'<br>";
+                            _importLog += "Image Src: " + imageSrc + "<br>";
                         }
                     }
                     catch (Exception ex)
@@ -655,52 +585,42 @@ namespace SitefinityWebApp.Migrate
             }
             else
             {
-                Response.Write("<br>Invalid thumbnail image URI in post '" + postTitle + "'<br>");
-                Response.Write("Image Src: " + imageSrc + "<br>");
+                _importLog += "<br>Invalid image URI in post '" + postTitle + "'<br>";
+                _importLog += "Image Src: " + imageSrc + "<br>";
             }
 
-            return true;
+            return result;
         }
         #endregion
 
         #region Misc.
-        private MemoryStream ReadFully(Stream input)
-        {
-            byte[] buffer = new byte[16 * 1024];
-            using (MemoryStream ms = new MemoryStream())
-            {
-                int read;
-                while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
-                {
-                    ms.Write(buffer, 0, read);
-                }
-                return ms;
-            }
-        }
-
         private Stream DownloadRemoteImageFile(string uri)
         {
+            Stream outputStream = new MemoryStream();
+
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(uri);
-            HttpWebResponse response;
             try
             {
-                response = (HttpWebResponse)request.GetResponse();
+                using(HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                {
+                    HttpStatusCode statusCode = response.StatusCode;
+
+                    if ((statusCode == HttpStatusCode.OK || statusCode == HttpStatusCode.Moved || statusCode == HttpStatusCode.Redirect) && response.ContentType.StartsWith("image", StringComparison.OrdinalIgnoreCase))
+                    {
+                        using(Stream responseStream = response.GetResponseStream())
+                        {
+                            responseStream.CopyTo(outputStream);
+                            return outputStream;
+                        }
+                    }
+                    else
+                    {
+                        outputStream.Dispose();
+                        return null;
+                    }
+                }
             }
             catch (Exception)
-            {
-                return null;
-            }
-
-            HttpStatusCode statusCode = response.StatusCode;
-
-            if ((statusCode == HttpStatusCode.OK || statusCode == HttpStatusCode.Moved || statusCode == HttpStatusCode.Redirect)
-                && response.ContentType.StartsWith("image", StringComparison.OrdinalIgnoreCase))
-            {
-                Stream inputStream = response.GetResponseStream();
-                
-                return inputStream;
-            }
-            else
             {
                 return null;
             }
@@ -819,8 +739,8 @@ namespace SitefinityWebApp.Migrate
         #endregion
 
         #region Managers
-        private TaxonomyManager _sfTaxonomyManager;
-        public TaxonomyManager SFTaxonomyManager
+        private static TaxonomyManager _sfTaxonomyManager;
+        public static TaxonomyManager SFTaxonomyManager
         {
             get
             {
@@ -832,8 +752,8 @@ namespace SitefinityWebApp.Migrate
             }
         }
 
-        private LibrariesManager _sfLibrariesManager;
-        public LibrariesManager SFLibrariesManager
+        private static LibrariesManager _sfLibrariesManager;
+        public static LibrariesManager SFLibrariesManager
         {
             get
             {
@@ -845,8 +765,8 @@ namespace SitefinityWebApp.Migrate
             }
         }
 
-        private BlogsManager _sfBlogsManager;
-        public BlogsManager SFBlogsManager
+        private static BlogsManager _sfBlogsManager;
+        public static BlogsManager SFBlogsManager
         {
             get
             {
@@ -858,8 +778,8 @@ namespace SitefinityWebApp.Migrate
             }
         }
 
-        private UserManager _sfUserManager;
-        public UserManager SFUserManager
+        private static UserManager _sfUserManager;
+        public static UserManager SFUserManager
         {
             get
             {
@@ -883,7 +803,6 @@ namespace SitefinityWebApp.Migrate
             return input;
         }
 
-
         public static string LinkContentImages(string content)
         {
             CQ document = content;
@@ -905,80 +824,34 @@ namespace SitefinityWebApp.Migrate
 
         public static bool BuildSitefinityReference(this CQ htmlElement)
         {
+            bool result = false;
+
             string imgFile = Path.GetFileName(htmlElement.Attr("src"));
 
-            var sfImg = App.WorkWith().Images().Where(i => i.Status == ContentLifecycleStatus.Master).Get().ToList().Where(i => Path.GetFileName(i.FilePath) == imgFile).FirstOrDefault();
+            var sfImg = App.WorkWith().Images().Where(i => i.Status == ContentLifecycleStatus.Master).Get().ToList().Where(i => Path.GetFileName(i.FilePath) == imgFile.ToLower()).FirstOrDefault();
 
             if (sfImg != null)
             {
                 var manager = LibrariesManager.GetManager();
                 var album = manager.GetAlbums().Where(a => a.Id == sfImg.Album.Id).FirstOrDefault();
 
-                var albumProvider = (LibrariesDataProvider)album.Provider;
-
                 string urlRoot = Telerik.Sitefinity.Configuration.Config.Get<LibrariesConfig>().Images.UrlRoot;
 
                 var sfImgLive = App.WorkWith().Image(sfImg.Id).GetLive().Get();
 
-                var sfRef = "[" + urlRoot + "|" + albumProvider + "]" + sfImgLive.Id;
+                var sfRef = "[" + urlRoot + "|" + (LibrariesDataProvider)album.Provider + "]" + sfImgLive.Id;
 
                 htmlElement.Attr("sfref", sfRef);
 
                 string relativeUrl = new Uri(sfImg.MediaUrl).AbsolutePath;
 
                 htmlElement.Attr("src", relativeUrl);
+
+                result = true;
             }
 
-            return true;
+            return result;
         }
-
-        public static ImageFormat GetContentType(byte[] imageBytes)
-        {
-            MemoryStream ms = new MemoryStream(imageBytes);
-
-            using (BinaryReader br = new BinaryReader(ms))
-            {
-                int maxMagicBytesLength = imageFormatDecoders.Keys.OrderByDescending(x => x.Length).First().Length;
-
-                byte[] magicBytes = new byte[maxMagicBytesLength];
-
-                for (int i = 0; i < maxMagicBytesLength; i += 1)
-                {
-                    magicBytes[i] = br.ReadByte();
-
-                    foreach (var kvPair in imageFormatDecoders)
-                    {
-                        if (magicBytes.StartsWith(kvPair.Key))
-                        {
-                            return kvPair.Value;
-                        }
-                    }
-                }
-
-                throw new ArgumentException("Could not recognise image format", "binaryReader");
-            }
-        }
-
-        private static bool StartsWith(this byte[] thisBytes, byte[] thatBytes)
-        {
-            for (int i = 0; i < thatBytes.Length; i += 1)
-            {
-                if (thisBytes[i] != thatBytes[i])
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private static Dictionary<byte[], ImageFormat> imageFormatDecoders = new Dictionary<byte[], ImageFormat>()
-        {
-            { new byte[]{ 0x42, 0x4D }, ImageFormat.Bmp},
-            { new byte[]{ 0x47, 0x49, 0x46, 0x38, 0x37, 0x61 }, ImageFormat.Gif },
-            { new byte[]{ 0x47, 0x49, 0x46, 0x38, 0x39, 0x61 }, ImageFormat.Gif },
-            { new byte[]{ 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, ImageFormat.Png },
-            { new byte[]{ 0xff, 0xd8 }, ImageFormat.Jpeg },
-        };
 
         public static bool IsLocalPath(string p)
         {
@@ -992,10 +865,12 @@ namespace SitefinityWebApp.Migrate
     }
     #endregion
 
-    internal class GenericBlogPost
+    public class GenericBlogPost
     {
         public string Creator;
         public string Title;
+        public string PostName;
+        public string AttachmentUrl;
         public string Summary;
         public string Content;
         public DateTime DateCreated;
@@ -1009,7 +884,7 @@ namespace SitefinityWebApp.Migrate
         public GenericPostComment[] Comments;
     }
 
-    internal class GenericPostComment
+    public class GenericPostComment
     {
         public string Author;
         public string AuthorEmail;
@@ -1024,7 +899,7 @@ namespace SitefinityWebApp.Migrate
         public int UserId;
     }
 
-    internal class PostAuthor
+    public class PostAuthor
     {
         public int Id;
         public string Username;
